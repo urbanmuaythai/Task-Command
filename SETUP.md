@@ -16,8 +16,30 @@ requiring a cloud connection.
 
 When Supabase configuration is present, signed-out visitors see only the login
 gate. The task board is revealed after a valid session and an approved
-`workspace_members` record are confirmed. Authentication uses a one-time email
-link and public sign-up remains disabled.
+`tc_members` record are confirmed.
+
+## Login (since 19 Nov 2026): same as the NMS app
+
+Task Command lives in the NMS app's Supabase project (`urban-army-nms`,
+`ooxtrhbgsfmpuklbxtqf`). Staff sign in with their **NMS username + password**
+(Supabase Auth email `<username>@staff.urbanmuaythai.com`). No email links, so
+no SMTP or email rate limits.
+
+- Logins are created and deactivated in the NMS app: Admin ▸ Staff & logins.
+- Task Command access = an active NMS staff login **plus** a row in
+  `public.tc_members` (role `owner` or `contributor` = Reviewer).
+- Tables are prefixed `tc_` because NMS already has `public.tasks`.
+- Schema and the one-off data copy are in `supabase/nms/`. The files in
+  `supabase/migrations/` describe the old stand-alone project
+  (`uzbcsgjocpxhidjaduct`) and are kept for history only.
+
+Give another NMS staff member access (run in the NMS SQL editor):
+
+```sql
+insert into public.tc_members (workspace_id, staff_id, role, display_name)
+select '2ac84d5d-65c8-494b-8c0f-d5e25b52ff22', id, 'contributor', name
+from public.staff where username = 'richie';
+```
 
 ## Local preview
 

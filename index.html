@@ -1051,18 +1051,27 @@
           <div class="eyebrow">Private Urban workspace</div>
           <h1>Sign in to Task Command</h1>
           <p>
-            Use an approved Urban Muaythai email. We’ll send a secure one-time
-            login link—there is no password to remember.
+            Use your NMS app username and password. Access is set up by an
+            admin in the NMS app.
           </p>
           <form id="loginForm">
             <label
-              >Email address<input
-                name="email"
-                type="email"
-                autocomplete="email"
+              >Username<input
+                name="username"
+                type="text"
+                autocomplete="username"
+                autocapitalize="none"
+                spellcheck="false"
                 required
             /></label>
-            <button class="btn gold" type="submit">Send secure login link</button>
+            <label
+              >Password<input
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                required
+            /></label>
+            <button class="btn gold" type="submit">Sign in</button>
             <p class="auth-status" id="loginStatus" role="status"></p>
           </form>
         </div>
@@ -1333,16 +1342,26 @@
     <dialog id="authDialog">
       <h2>Task Command login</h2>
       <form id="authForm">
-        <p>
-          Enter an approved Urban Muaythai email. We will send a one-time login
-          link—no password needed.
-        </p>
+        <p>Use your NMS app username and password.</p>
         <label
-          >Email<input name="email" type="email" autocomplete="email" required
+          >Username<input
+            name="username"
+            type="text"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            required
+        /></label>
+        <label
+          >Password<input
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
         /></label>
         <p class="auth-status" id="authStatus" role="status"></p>
         <div class="group">
-          <button class="btn primary" type="submit">Send login link</button>
+          <button class="btn primary" type="submit">Sign in</button>
           <button class="btn" type="button" data-close="authDialog">
             Close
           </button>

@@ -173,12 +173,12 @@
     }
     if (rows.length) {
       const { error } = await client
-        .from("tasks")
+        .from("tc_tasks")
         .upsert(rows, { onConflict: "workspace_id,client_key" });
       if (error) throw error;
     }
     const { data, error } = await client
-      .from("tasks")
+      .from("tc_tasks")
       .select("id,client_key")
       .eq("workspace_id", config.workspaceId)
       .is("archived_at", null);
@@ -199,14 +199,14 @@
         .filter(Boolean);
       for (let i = 0; i < occurrences.length; i += 250) {
         const { error } = await client
-          .from("task_occurrences")
+          .from("tc_task_occurrences")
           .upsert(occurrences.slice(i, i + 250), {
             onConflict: "task_id,occurrence_date",
           });
         if (error) throw error;
       }
       const { error: settingsError } = await client
-        .from("user_settings")
+        .from("tc_user_settings")
         .upsert(
           {
             workspace_id: config.workspaceId,
@@ -234,11 +234,10 @@
     if (!currentUser) return;
     setStatus("Loading workspace…", "syncing");
     const { data: member, error: memberError } = await client
-      .from("workspace_members")
+      .from("tc_members")
       .select("workspace_id,role,display_name")
       .eq("workspace_id", config.workspaceId)
-      .eq("user_id", currentUser.id)
-      .maybeSingle();
+      .maybeSingle(); // RLS only returns the signed-in staff member's own row
     if (memberError) throw memberError;
     if (!member) {
       membership = null;
@@ -260,7 +259,7 @@
     setSignedInUi();
 
     const { data: tasks, error: taskError } = await client
-      .from("tasks")
+      .from("tc_tasks")
       .select(
         "id,client_key,name,note,category,link,start_date,start_time,duration_minutes,priority,recurrence,recurrence_days,non_negotiable,is_system,created_by,assigned_to",
       )
@@ -297,7 +296,7 @@
       const ids = (tasks || []).map((row) => row.id);
       if (ids.length) {
         const { data: occurrences, error: occurrenceError } = await client
-          .from("task_occurrences")
+          .from("tc_task_occurrences")
           .select(
             "id,task_id,occurrence_date,status,planned_time,duration_minutes,priority,note,gates",
           )
@@ -326,7 +325,7 @@
         const occurrenceIdList = (occurrences || []).map((row) => row.id);
         if (occurrenceIdList.length) {
           const { data: reviews, error: reviewError } = await client
-            .from("task_reviews")
+            .from("tc_task_reviews")
             .select(
               "occurrence_id,status,note,requested_by,requested_at,reviewed_by,reviewed_at",
             )
@@ -352,7 +351,7 @@
       }
 
       const { data: settings, error: settingsError } = await client
-        .from("user_settings")
+        .from("tc_user_settings")
         .select("workday_start,workday_end,break_minutes")
         .eq("workspace_id", config.workspaceId)
         .eq("user_id", api.userId)
@@ -388,17 +387,17 @@
       .channel(`task-command-${config.workspaceId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "tasks" },
+        { event: "*", schema: "public", table: "tc_tasks" },
         queueReload,
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "task_occurrences" },
+        { event: "*", schema: "public", table: "tc_task_occurrences" },
         queueReload,
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "task_reviews" },
+        { event: "*", schema: "public", table: "tc_task_reviews" },
         queueReload,
       )
       .subscribe();
@@ -414,7 +413,7 @@
     if (!api.connected) return;
     const id = taskIds.get(clientKey);
     if (!id) return;
-    const { error } = await client.from("tasks").delete().eq("id", id);
+    const { error } = await client.from("tc_tasks").delete().eq("id", id);
     if (error) {
       notify(error.message || "You cannot delete this task.");
       throw error;
@@ -432,7 +431,7 @@
     let occurrenceId = occurrenceIds.get(recordKey);
     if (!occurrenceId) {
       const { data, error } = await client
-        .from("task_occurrences")
+        .from("tc_task_occurrences")
         .select("id")
         .eq("task_id", taskId)
         .eq("occurrence_date", record.date)
@@ -458,10 +457,10 @@
 
     const query = existing.status && existing.status !== "not_requested"
       ? client
-          .from("task_reviews")
+          .from("tc_task_reviews")
           .update(requestRow)
           .eq("occurrence_id", occurrenceId)
-      : client.from("task_reviews").insert(requestRow);
+      : client.from("tc_task_reviews").insert(requestRow);
     const { error } = await query;
     if (error) throw error;
     setStatus("Review saved", "connected");
@@ -476,25 +475,34 @@
     authDialog.showModal();
   };
 
-  async function sendLoginLink(form, statusElement, event) {
-    event.preventDefault();
-    const email = form.elements.email.value.trim();
-    statusElement.textContent = "Sending a secure login link…";
-    const { error } = await client.auth.signInWithOtp({
-      email,
-      options: {
-        shouldCreateUser: false,
-        emailRedirectTo: `${location.origin}${location.pathname}`,
-      },
-    });
-    statusElement.textContent = error
-      ? error.message
-      : "Login link sent. Check your email and open it on this device.";
+  // Same logins as the NMS app: "<username>@staff.urbanmuaythai.com" in Supabase Auth.
+  function loginEmail(username) {
+    const value = username.trim().toLowerCase();
+    return value.includes("@") ? value : `${value}@staff.urbanmuaythai.com`;
   }
 
-  authForm.onsubmit = (event) => sendLoginLink(authForm, authStatus, event);
-  loginForm.onsubmit = (event) =>
-    sendLoginLink(loginForm, loginStatus, event);
+  async function signIn(form, statusElement, event) {
+    event.preventDefault();
+    const username = form.elements.username.value;
+    const password = form.elements.password.value;
+    statusElement.textContent = "Signing in…";
+    const { error } = await client.auth.signInWithPassword({
+      email: loginEmail(username),
+      password,
+    });
+    form.elements.password.value = "";
+    if (error) {
+      statusElement.textContent = /invalid/i.test(error.message)
+        ? "Wrong username or password. Use the same login as the NMS app."
+        : error.message;
+      return;
+    }
+    statusElement.textContent = "";
+    if (form === authForm) authDialog.close();
+  }
+
+  authForm.onsubmit = (event) => signIn(authForm, authStatus, event);
+  loginForm.onsubmit = (event) => signIn(loginForm, loginStatus, event);
 
   client.auth.onAuthStateChange((_event, session) => {
     currentUser = session?.user || null;
