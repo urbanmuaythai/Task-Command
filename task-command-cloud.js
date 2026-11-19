@@ -20,6 +20,15 @@
     userId: "",
     deleteTask: async () => {},
     saveReview: async () => {},
+    // Mel Review requests (not tied to a weekday)
+    displayName: "",
+    requests: [],
+    requestUpdates: new Map(),
+    requestsLoaded: false,
+    addRequest: async () => {},
+    editRequest: async () => {},
+    postRequestUpdate: async () => {},
+    deleteRequest: async () => {},
   };
   window.TaskCommandCloud = api;
 
@@ -256,6 +265,7 @@
     api.connected = true;
     api.role = member.role;
     api.userId = currentUser.id;
+    api.displayName = member.display_name || currentUser.email || "Team member";
     setSignedInUi();
 
     const { data: tasks, error: taskError } = await client
@@ -373,6 +383,7 @@
 
     await syncToCloud();
     subscribeToWorkspace();
+    await loadRequests();
   }
 
   function queueReload() {
@@ -400,8 +411,142 @@
         { event: "*", schema: "public", table: "tc_task_reviews" },
         queueReload,
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tc_requests" },
+        queueRequestReload,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tc_request_updates" },
+        queueRequestReload,
+      )
       .subscribe();
   }
+
+  // ---- Mel Review requests -------------------------------------------------
+  let requestReloadTimer = null;
+  function queueRequestReload() {
+    if (!api.connected) return;
+    clearTimeout(requestReloadTimer);
+    requestReloadTimer = setTimeout(
+      () => loadRequests().catch(handleError),
+      500,
+    );
+  }
+
+  async function loadRequests() {
+    if (!api.connected) return;
+    const { data: requests, error } = await client
+      .from("tc_requests")
+      .select(
+        "id,title,details,link,priority,due_date,status,created_by,created_by_name,last_update,last_update_by_name,last_update_at,completed_at,created_at,updated_at",
+      )
+      .eq("workspace_id", config.workspaceId)
+      .order("updated_at", { ascending: false })
+      .limit(500);
+    if (error) throw error;
+    const ids = (requests || []).map((row) => row.id);
+    const updates = new Map();
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data, error: updateError } = await client
+        .from("tc_request_updates")
+        .select("id,request_id,author_name,status,note,created_at")
+        .in("request_id", ids.slice(i, i + 100))
+        .order("created_at", { ascending: true });
+      if (updateError) throw updateError;
+      for (const row of data || []) {
+        if (!updates.has(row.request_id)) updates.set(row.request_id, []);
+        updates.get(row.request_id).push(row);
+      }
+    }
+    api.requests = requests || [];
+    api.requestUpdates = updates;
+    api.requestsLoaded = true;
+    if (typeof render === "function") render();
+  }
+
+  function requireConnection() {
+    if (!api.connected) throw Error("Sign in to use Mel Review.");
+  }
+
+  async function logUpdate(requestId, status, note) {
+    const { error } = await client.from("tc_request_updates").insert({
+      request_id: requestId,
+      author_id: api.userId,
+      author_name: api.displayName,
+      status: status || null,
+      note: String(note || "").slice(0, 2000),
+    });
+    if (error) throw error;
+  }
+
+  api.addRequest = async (fields) => {
+    requireConnection();
+    const { data, error } = await client
+      .from("tc_requests")
+      .insert({
+        workspace_id: config.workspaceId,
+        title: fields.title,
+        details: fields.details || "",
+        link: fields.link || null,
+        priority: fields.priority === "high" ? "high" : "normal",
+        due_date: fields.dueDate || null,
+        status: "todo",
+        created_by: api.userId,
+        created_by_name: api.displayName,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    await logUpdate(data.id, "todo", "Request added.");
+    await loadRequests();
+  };
+
+  api.editRequest = async (id, fields) => {
+    requireConnection();
+    const { error } = await client
+      .from("tc_requests")
+      .update({
+        title: fields.title,
+        details: fields.details || "",
+        link: fields.link || null,
+        priority: fields.priority === "high" ? "high" : "normal",
+        due_date: fields.dueDate || null,
+      })
+      .eq("id", id);
+    if (error) throw error;
+    await logUpdate(id, null, "Request details edited.");
+    await loadRequests();
+  };
+
+  api.postRequestUpdate = async (id, status, note) => {
+    requireConnection();
+    const now = new Date().toISOString();
+    const patch = {
+      status,
+      completed_at: status === "done" ? now : null,
+    };
+    if (note) {
+      patch.last_update = String(note).slice(0, 2000);
+      patch.last_update_by_name = api.displayName;
+      patch.last_update_at = now;
+    }
+    const { error } = await client
+      .from("tc_requests")
+      .update(patch)
+      .eq("id", id);
+    if (error) throw error;
+    await logUpdate(id, status, note);
+    await loadRequests();
+  };
+
+  api.deleteRequest = async (id) => {
+    requireConnection();
+    const { error } = await client.from("tc_requests").delete().eq("id", id);
+    if (error) throw error;
+    await loadRequests();
+  };
 
   function handleError(error) {
     console.error("Task Command cloud error", error);
@@ -511,6 +656,10 @@
       api.connected = false;
       api.role = "local";
       api.userId = "";
+      api.displayName = "";
+      api.requests = [];
+      api.requestUpdates = new Map();
+      api.requestsLoaded = false;
       if (realtimeChannel) client.removeChannel(realtimeChannel);
       realtimeChannel = null;
       setLocalUi("Signed out · local preview");

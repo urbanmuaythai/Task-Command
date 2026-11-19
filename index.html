@@ -726,6 +726,102 @@
         width: 100%;
         min-height: 72px;
       }
+      /* ---- Mel Review: request board (not tied to weekdays) ---- */
+      body.review-mode .layout {
+        grid-template-columns: 1fr;
+      }
+      body.review-mode .side,
+      body.review-mode #weekToolbar,
+      body.review-mode #days,
+      body.review-mode #statusFilter {
+        display: none !important;
+      }
+      .req-board {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        align-items: start;
+      }
+      .req-board .review-column > h3 small {
+        font: 600 10px Inter;
+        color: var(--muted);
+        letter-spacing: 0;
+        margin-left: 4px;
+      }
+      .task.req {
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+      .task.req.review {
+        border-left: 3px solid #7dd3fc;
+      }
+      .task.req.todo.overdue-req {
+        border-left: 3px solid #ff8e9b;
+      }
+      .badge.from-mel {
+        color: #fbcfe8;
+        border-color: rgba(251, 207, 232, 0.45);
+        background: rgba(251, 207, 232, 0.08);
+      }
+      .badge.req-review {
+        color: #7dd3fc;
+        border-color: rgba(125, 211, 252, 0.45);
+      }
+      .badge.req-waiting {
+        color: var(--gold);
+        border-color: rgba(245, 185, 33, 0.35);
+      }
+      .badge.req-done {
+        color: #86efac;
+        border-color: rgba(134, 239, 172, 0.45);
+      }
+      .req-latest {
+        margin-top: 9px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.04);
+        font-size: 11px;
+        color: var(--text);
+        overflow-wrap: anywhere;
+      }
+      .req-latest small {
+        display: block;
+        color: var(--muted);
+        font-size: 9px;
+        margin-top: 4px;
+      }
+      .req-history {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .req-history li {
+        font-size: 10px;
+        color: var(--muted);
+        border-left: 2px solid var(--line);
+        padding-left: 8px;
+        overflow-wrap: anywhere;
+      }
+      .req-history li b {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .req-hint {
+        font-size: 10px;
+        color: var(--muted);
+      }
+      @media (max-width: 1100px) {
+        .req-board {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 650px) {
+        .req-board {
+          grid-template-columns: 1fr;
+        }
+      }
       .catalog-task {
         padding: 17px;
         border: 1px solid var(--line);
@@ -1106,7 +1202,8 @@
         <div class="group" aria-label="View">
           <button class="btn on" data-view="day">Day plan</button
           ><button class="btn" data-view="week">Week overview</button
-          ><button class="btn" data-view="review">Mel review</button
+          ><button class="btn" data-view="review">
+            Mel Review<span id="melCount"></span></button
           ><button class="btn" data-view="catalog">Task library</button>
         </div>
         <div class="group">
@@ -1117,7 +1214,7 @@
         </div>
       </div>
       <div class="stats" id="stats"></div>
-      <div class="toolbar">
+      <div class="toolbar" id="weekToolbar">
         <div class="group">
           <button class="btn small" id="prevWeek" aria-label="Previous week">
             ←</button
@@ -1216,6 +1313,47 @@
         >
       </footer>
     </div>
+    <dialog id="requestDialog">
+      <h2 id="requestDialogTitle">Add a request</h2>
+      <form id="requestForm">
+        <input type="hidden" name="id" />
+        <label
+          >What needs doing<input name="title" maxlength="160" required
+        /></label>
+        <label
+          >Details<textarea
+            name="details"
+            maxlength="4000"
+            rows="4"
+            placeholder="What does done look like? Anything to check first?"
+          ></textarea>
+        </label>
+        <div class="form-row">
+          <label>Due date (optional)<input name="dueDate" type="date" /></label
+          ><label
+            >Priority<select name="priority">
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+            </select></label
+          >
+        </div>
+        <label
+          >Link (optional)<input
+            name="link"
+            type="url"
+            placeholder="https://…"
+        /></label>
+        <p class="auth-status" id="requestStatus" role="status"></p>
+        <div class="group">
+          <button class="btn gold" type="submit" id="requestSubmit">
+            Add request
+          </button>
+          <button class="btn" type="button" data-close="requestDialog">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="taskDialog">
       <h2>Add a task</h2>
       <form id="taskForm">
@@ -2784,11 +2922,10 @@
           <div class="time-col">${esc(r.time || t.time)}<small class="ph-time">${phTime(r.time || t.time)} PH</small><small>${r.duration} min</small></div>
           <div>
             <div class="t-head"><h3>${esc(t.name)}</h3><select class="status-select" aria-label="Status for ${esc(t.name)}">${statuses.map((s) => `<option value="${s}"${s === r.status ? " selected" : ""}>${labels[s]}</option>`).join("")}</select></div>
-            <div class="badges"><span class="badge">${esc(DATA.cats[t.cat] || "Personal")}</span>${personal && t.recurrence !== "none" ? `<span class="badge">${esc(recurrenceLabels[t.recurrence] || "Recurring")}</span>` : ""}${t.nonNegotiable ? '<span class="badge non-negotiable">Daily Non-Negotiable</span>' : ""}${r.priority === "high" ? '<span class="badge high">High priority</span>' : ""}${overdue ? '<span class="badge overdue">Past planned start</span>' : ""}${blocked(x) ? '<span class="badge high">Preparation needed</span>' : ""}${showGates ? '<span class="badge high">Approval checks</span>' : ""}${reviewBadge}</div>
+            <div class="badges"><span class="badge">${esc(DATA.cats[t.cat] || "Personal")}</span>${personal && t.recurrence !== "none" ? `<span class="badge">${esc(recurrenceLabels[t.recurrence] || "Recurring")}</span>` : ""}${t.nonNegotiable ? '<span class="badge non-negotiable">Daily Non-Negotiable</span>' : ""}${r.priority === "high" ? '<span class="badge high">High priority</span>' : ""}${overdue ? '<span class="badge overdue">Past planned start</span>' : ""}${blocked(x) ? '<span class="badge high">Preparation needed</span>' : ""}${showGates ? '<span class="badge high">Approval checks</span>' : ""}</div>
             <p>${esc(t.note)}</p>
             ${r.note ? `<p><strong>${["start-day", "end-day", "next-week-plan"].includes(t.id) ? "Your plan" : "Next action"}:</strong> ${esc(r.note)}</p>` : ""}
             <div class="task-links">${linkMarkup(t.id, "Open task")}${["red-flag-sms", "orange-flag-sms"].includes(t.id) ? '<a href="https://urbanmuaythai.github.io/Message-Templates/" target="_blank" rel="noopener">Approved templates ↗</a>' : ""}${t.link ? `<a href="${esc(safeUrl(t.link))}" target="_blank" rel="noopener">Task link ↗</a>` : ""}</div>
-            ${reviewActions}
             <details${focused === key ? " open" : ""}><summary>Notes, time &amp; checks</summary><div class="editor">
               ${showGates ? `<div class="gates"><div class="gate-title">Confirm before marking complete</div>${t.gates.map((g, i) => `<label><input type="checkbox" data-gate="${i}"${r.gates?.[i] ? " checked" : ""}>${esc(g)}</label>`).join("")}</div>` : ""}
               ${t.subs ? `<div class="task-links">${t.subs.map((s, i) => linkMarkup(t.id + "#" + i, s) || `<span>${esc(s)}</span>`).join(" · ")}</div>` : ""}
@@ -2800,6 +2937,229 @@
             </div></details>
           </div>
         </article>`;
+      }
+      // ---- Mel Review: requests Mel (or Ram) adds, tracked until Mel signs off ----
+      const requestLabels = {
+        todo: "To do",
+        doing: "In progress",
+        waiting: "Waiting",
+        review: "Ready for Mel",
+        done: "Done",
+      };
+      function requestCloud() {
+        return window.TaskCommandCloud || {};
+      }
+      function allRequests() {
+        return requestCloud().requests || [];
+      }
+      function requestHistory(id) {
+        return requestCloud().requestUpdates?.get(id) || [];
+      }
+      function openRequests() {
+        return allRequests().filter((q) => q.status !== "done");
+      }
+      function requestOverdue(q) {
+        return Boolean(q.due_date && q.status !== "done" && q.due_date < today());
+      }
+      // Who may mark a request Done: the person who added it, or Mel (reviewer).
+      function canCloseRequest(q) {
+        const cloud = requestCloud();
+        return q.created_by === cloud.userId || isReviewer();
+      }
+      function canEditRequest(q) {
+        const cloud = requestCloud();
+        return q.created_by === cloud.userId || cloud.role === "owner";
+      }
+      function whenLabel(iso) {
+        if (!iso) return "";
+        const then = new Date(iso);
+        const mins = Math.round((Date.now() - then.getTime()) / 60000);
+        if (mins < 1) return "just now";
+        if (mins < 60) return `${mins} min ago`;
+        if (mins < 60 * 24) return `${Math.round(mins / 60)} h ago`;
+        return new Intl.DateTimeFormat("en-AU", {
+          timeZone: TIMEZONE,
+          day: "numeric",
+          month: "short",
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(then);
+      }
+      function requestMarkup(q) {
+        const history = requestHistory(q.id);
+        const reviewer = isReviewer();
+        const closable = canCloseRequest(q);
+        const editable = canEditRequest(q);
+        const fromMel = /^mel/i.test(q.created_by_name);
+        const overdue = requestOverdue(q);
+        const statusChoices = Object.keys(requestLabels).filter(
+          (s) => s !== "done" || closable || q.status === "done",
+        );
+        const signOff =
+          q.status === "review"
+            ? reviewer
+              ? `<div class="review-actions"><label>Mel’s note<textarea maxlength="2000" data-req-signoff-note placeholder="Required if it needs more work; optional when approving."></textarea></label><div class="group"><button type="button" class="btn small danger req-more-work">Needs more work</button><button type="button" class="btn small gold req-approve">Approve – done</button></div></div>`
+              : '<p class="req-hint">Waiting for Mel to sign off.</p>'
+            : "";
+        const editor = editable
+          ? `<div class="group"><button type="button" class="btn small req-edit">Edit request</button><button type="button" class="btn small danger req-delete">Delete</button></div>`
+          : "";
+        return `<article class="task req ${esc(q.status)}${overdue ? " overdue-req" : ""}" data-req="${esc(q.id)}">
+          <div>
+            <div class="t-head"><h3>${esc(q.title)}</h3></div>
+            <div class="badges"><span class="badge${fromMel ? " from-mel" : ""}">Added by ${esc(q.created_by_name)}</span>${q.status === "waiting" ? '<span class="badge req-waiting">Waiting</span>' : ""}${q.status === "done" ? '<span class="badge req-done">Done</span>' : ""}${q.priority === "high" ? '<span class="badge high">High priority</span>' : ""}${q.due_date ? `<span class="badge${overdue ? " overdue" : ""}">${overdue ? "Overdue · " : "Due "}${esc(dateLabel(q.due_date, { weekday: "short", day: "numeric", month: "short" }))}</span>` : ""}</div>
+            ${q.details ? `<p>${esc(q.details)}</p>` : ""}
+            ${q.link && safeUrl(q.link) ? `<div class="task-links"><a href="${esc(safeUrl(q.link))}" target="_blank" rel="noopener">Open link ↗</a></div>` : ""}
+            <div class="req-latest">${q.last_update ? `<strong>Latest:</strong> ${esc(q.last_update)}<small>${esc(q.last_update_by_name)} · ${esc(whenLabel(q.last_update_at))}</small>` : `<span class="req-hint">No progress update yet · added ${esc(whenLabel(q.created_at))}</span>`}</div>
+            ${signOff}
+            <details><summary>Update progress &amp; history (${history.length})</summary><div class="editor">
+              <div class="row"><label>Status<select data-req-status>${statusChoices.map((s) => `<option value="${s}"${s === q.status ? " selected" : ""}>${requestLabels[s]}</option>`).join("")}</select></label></div>
+              <label>Progress update<textarea maxlength="2000" data-req-note placeholder="Where is this at? What’s next? Who are you waiting on?"></textarea></label>
+              <div class="group"><button type="button" class="btn small gold req-post">Post update</button></div>
+              ${!closable && q.status !== "done" ? '<p class="req-hint">When it’s finished, set it to “Ready for Mel” so she can sign it off.</p>' : ""}
+              <ul class="req-history">${history
+                .slice()
+                .reverse()
+                .map(
+                  (u) =>
+                    `<li><b>${esc(u.author_name)}</b> · ${esc(whenLabel(u.created_at))}${u.status ? ` · ${esc(requestLabels[u.status] || u.status)}` : ""}${u.note ? `<br>${esc(u.note)}` : ""}</li>`,
+                )
+                .join("")}</ul>
+              ${editor}
+            </div></details>
+          </div>
+        </article>`;
+      }
+      function renderRequests(holder) {
+        const cloud = requestCloud();
+        if (!cloud.connected) {
+          holder.innerHTML =
+            '<p class="empty">Sign in to see Mel’s requests. They are shared between Ram and Mel.</p>';
+          return;
+        }
+        if (!cloud.requestsLoaded) {
+          holder.innerHTML = '<p class="empty">Loading requests…</p>';
+          return;
+        }
+        const search = $("search").value.toLowerCase().trim();
+        const list = allRequests().filter(
+          (q) =>
+            !search ||
+            [q.title, q.details, q.last_update, q.created_by_name]
+              .join(" ")
+              .toLowerCase()
+              .includes(search),
+        );
+        const byDue = (a, b) =>
+          (b.priority === "high") - (a.priority === "high") ||
+          (a.due_date || "9999").localeCompare(b.due_date || "9999") ||
+          a.created_at.localeCompare(b.created_at);
+        const done = list
+          .filter((q) => q.status === "done")
+          .sort((a, b) =>
+            (b.completed_at || b.updated_at).localeCompare(
+              a.completed_at || a.updated_at,
+            ),
+          );
+        const columns = [
+          ["To do", "Not started", list.filter((q) => q.status === "todo").sort(byDue)],
+          [
+            "In progress",
+            "Working on it or waiting",
+            list
+              .filter((q) => q.status === "doing" || q.status === "waiting")
+              .sort(byDue),
+          ],
+          ["Ready for Mel", "Needs Mel’s sign-off", list.filter((q) => q.status === "review").sort(byDue)],
+          ["Done", done.length > 15 ? "Latest 15" : "Signed off", done.slice(0, 15)],
+        ];
+        holder.innerHTML = `<div class="req-board">${columns
+          .map(
+            ([title, hint, cards]) =>
+              `<section class="review-column"><h3>${title} · ${cards.length}<small>${esc(hint)}</small></h3>${cards.map(requestMarkup).join("") || '<p class="empty">Nothing here.</p>'}</section>`,
+          )
+          .join("")}</div>`;
+        holder.querySelectorAll("[data-req]").forEach((card) => {
+          const q = allRequests().find((x) => x.id === card.dataset.req);
+          if (!q) return;
+          const run = async (work, message) => {
+            card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+            try {
+              await work();
+              if (message) notify(message);
+            } catch (error) {
+              console.error("Request update failed", error);
+              notify(error.message || "Unable to save this request.");
+              card.querySelectorAll("button").forEach((b) => (b.disabled = false));
+            }
+          };
+          card.querySelector(".req-post").onclick = () => {
+            const status = card.querySelector("[data-req-status]").value;
+            const note = card.querySelector("[data-req-note]").value.trim();
+            if (status === q.status && !note) {
+              notify("Write an update or change the status first.");
+              return;
+            }
+            if (status === "done" && !canCloseRequest(q)) {
+              notify("Set it to “Ready for Mel” so she can sign it off.");
+              return;
+            }
+            run(
+              () => cloud.postRequestUpdate(q.id, status, note),
+              "Update posted.",
+            );
+          };
+          const approve = card.querySelector(".req-approve");
+          if (approve)
+            approve.onclick = () =>
+              run(
+                () =>
+                  cloud.postRequestUpdate(
+                    q.id,
+                    "done",
+                    card.querySelector("[data-req-signoff-note]").value.trim() ||
+                      "Approved – done.",
+                  ),
+                "Signed off.",
+              );
+          const moreWork = card.querySelector(".req-more-work");
+          if (moreWork)
+            moreWork.onclick = () => {
+              const note = card
+                .querySelector("[data-req-signoff-note]")
+                .value.trim();
+              if (!note) {
+                notify("Add a note saying what still needs doing.");
+                return;
+              }
+              run(
+                () => cloud.postRequestUpdate(q.id, "doing", note),
+                "Sent back with your note.",
+              );
+            };
+          const edit = card.querySelector(".req-edit");
+          if (edit) edit.onclick = () => openRequestDialog(q);
+          const remove = card.querySelector(".req-delete");
+          if (remove)
+            remove.onclick = () => {
+              if (!confirm(`Delete “${q.title}” and its history?`)) return;
+              run(() => cloud.deleteRequest(q.id), "Request deleted.");
+            };
+        });
+      }
+      function openRequestDialog(q = null) {
+        const form = $("requestForm");
+        form.reset();
+        form.elements.id.value = q?.id || "";
+        form.elements.title.value = q?.title || "";
+        form.elements.details.value = q?.details || "";
+        form.elements.dueDate.value = q?.due_date || "";
+        form.elements.priority.value = q?.priority || "normal";
+        form.elements.link.value = q?.link || "";
+        $("requestDialogTitle").textContent = q ? "Edit request" : "Add a request";
+        $("requestSubmit").textContent = q ? "Save changes" : "Add request";
+        $("requestStatus").textContent = "";
+        $("requestDialog").showModal();
       }
       function renderList() {
         const holder = $("taskList");
@@ -2842,33 +3202,8 @@
           return;
         }
         if (view === "review") {
-          const q = $("search").value.toLowerCase().trim();
-          const reviewItems = Array.from({ length: 5 }, (_, index) =>
-            items(shiftDate(weekStart(selected), index), false),
-          )
-            .flat()
-            .filter((x) => reviewState(x.r).status !== "not_requested")
-            .filter((x) =>
-              !q
-                ? true
-                : [x.t.name, x.t.note, x.r.note, reviewState(x.r).note]
-                    .join(" ")
-                    .toLowerCase()
-                    .includes(q),
-            );
-          const columns = [
-            ["ready", "Ready for Mel"],
-            ["changes_requested", "Changes requested"],
-            ["approved", "Approved"],
-          ];
-          holder.innerHTML = `<div class="review-board">${columns
-            .map(([status, title]) => {
-              const cards = reviewItems.filter(
-                (x) => reviewState(x.r).status === status,
-              );
-              return `<section class="review-column"><h3>${title} · ${cards.length}</h3>${cards.map(taskMarkup).join("") || '<p class="empty">Nothing here.</p>'}</section>`;
-            })
-            .join("")}</div>`;
+          renderRequests(holder);
+          return;
         } else {
           const all = currentItems().filter(matches);
           holder.innerHTML = all.length
@@ -3053,20 +3388,23 @@
       }
       function renderStats() {
         if (view === "review") {
-          const reviews = Array.from({ length: 5 }, (_, index) =>
-            items(shiftDate(weekStart(selected), index), false),
-          )
-            .flat()
-            .map((x) => reviewState(x.r));
-          const count = (status) =>
-            reviews.filter((review) => review.status === status).length;
+          const open = openRequests();
+          const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
           $("stats").innerHTML = [
-            [count("ready"), "Waiting for Mel"],
-            [count("changes_requested"), "Changes requested"],
-            [count("approved"), "Approved this week"],
+            [open.length, "Open requests"],
             [
-              count("ready") + count("changes_requested"),
-              "Needs action",
+              open.filter((q) => q.status === "review").length,
+              "Ready for Mel",
+            ],
+            [
+              open.filter(requestOverdue).length,
+              "Overdue",
+            ],
+            [
+              allRequests().filter(
+                (q) => q.status === "done" && (q.completed_at || "") >= weekAgo,
+              ).length,
+              "Done in the last 7 days",
             ],
           ]
             .map(
@@ -3204,7 +3542,7 @@
             : view === "week"
               ? "Your week at a glance"
               : view === "review"
-                ? "Mel review and sign-off"
+                ? "Mel Review"
                 : "Recurring task library";
         $("panelMeta").textContent =
           view === "day"
@@ -3212,12 +3550,17 @@
             : view === "week"
               ? "Open a day to work through its plan. Unfinished tasks stay on their original date."
               : view === "review"
-                ? "Work submitted this week is grouped by review status. Mel can approve or request changes with an audit note."
+                ? "Requests Mel adds for Ram, from start to sign-off. Open a card to post a progress update; set it to “Ready for Mel” when it’s finished."
                 : "Your recurring work, approved workflows and saved links.";
         document.querySelectorAll("[data-view]").forEach((b) => {
           b.classList.toggle("on", b.dataset.view === view);
           b.setAttribute("aria-pressed", b.dataset.view === view);
         });
+        document.body.classList.toggle("review-mode", view === "review");
+        $("addTask").textContent =
+          view === "review" ? "+ Add request" : "+ Add task";
+        const openCount = openRequests().length;
+        $("melCount").textContent = openCount ? ` · ${openCount}` : "";
         renderStats();
         renderDays();
         renderList();
@@ -3251,7 +3594,42 @@
       };
       $("search").oninput = renderList;
       $("statusFilter").onchange = renderList;
+      $("requestForm").onsubmit = async (e) => {
+        e.preventDefault();
+        const f = $("requestForm").elements;
+        const fields = {
+          title: f.title.value.trim(),
+          details: f.details.value.trim(),
+          dueDate: validDate(f.dueDate.value) ? f.dueDate.value : "",
+          priority: f.priority.value,
+          link: f.link.value.trim() ? safeUrl(f.link.value.trim()) : "",
+        };
+        if (!fields.title) return;
+        if (f.link.value.trim() && !fields.link) {
+          $("requestStatus").textContent = "Use an http or https link.";
+          return;
+        }
+        $("requestSubmit").disabled = true;
+        $("requestStatus").textContent = "Saving…";
+        try {
+          const cloud = window.TaskCommandCloud || {};
+          if (f.id.value) await cloud.editRequest(f.id.value, fields);
+          else await cloud.addRequest(fields);
+          $("requestDialog").close();
+          notify(f.id.value ? "Request updated." : "Request added.");
+        } catch (error) {
+          console.error("Request save failed", error);
+          $("requestStatus").textContent =
+            error.message || "Unable to save this request.";
+        } finally {
+          $("requestSubmit").disabled = false;
+        }
+      };
       $("addTask").onclick = () => {
+        if (view === "review") {
+          openRequestDialog();
+          return;
+        }
         $("taskForm").reset();
         $("taskForm").elements.date.value = selected;
         $("taskForm").elements.time.value = "15:45";
